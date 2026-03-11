@@ -16,12 +16,10 @@ DEST_PATH = os.path.join(
     "amplifier_module_tools_env_all",
     "apply_diff.py",
 )
-SOURCE_PATH = (
-    "/home/bkrabach/dev/attractor-dev-machine"
-    "/amplifier-bundle-filesystem"
-    "/modules/tool-apply-patch"
-    "/amplifier_module_tool_apply_patch/apply_diff.py"
-)
+# SOURCE_PATH may be set via environment variable APPLY_DIFF_SOURCE_PATH for
+# local development verification.  In CI / standard installs the source repo
+# is not present, so the content-comparison test is skipped automatically.
+SOURCE_PATH = os.environ.get("APPLY_DIFF_SOURCE_PATH")
 
 
 def test_apply_diff_file_exists():
@@ -51,7 +49,18 @@ def test_apply_diff_contains_apply_diff_function():
 
 
 def test_apply_diff_content_matches_source():
-    """Vendored file content must be byte-for-byte identical to the source."""
+    """Vendored file content must be byte-for-byte identical to the source.
+
+    Requires APPLY_DIFF_SOURCE_PATH env var pointing to the upstream copy.
+    Skipped automatically when the source repo is not present.
+    """
+    import pytest
+
+    if SOURCE_PATH is None or not os.path.isfile(SOURCE_PATH):
+        pytest.skip(
+            "SOURCE_PATH not set or unavailable; "
+            "set APPLY_DIFF_SOURCE_PATH to enable this check"
+        )
 
     def sha256(path):
         h = hashlib.sha256()
