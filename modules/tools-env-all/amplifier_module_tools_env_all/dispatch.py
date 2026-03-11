@@ -473,3 +473,94 @@ class EnvFileExistsTool:
             return ToolResult(success=True, output={"exists": exists, "path": path})
         except Exception as e:
             return ToolResult(success=False, error={"message": str(e)})
+
+
+# ---------------------------------------------------------------------------
+# EnvApplyPatchTool
+# ---------------------------------------------------------------------------
+
+
+class EnvApplyPatchTool:
+    """Apply pre-parsed file operations (create, update, delete) in a named environment."""
+
+    def __init__(self, registry: EnvironmentRegistry) -> None:
+        self._registry = registry
+
+    @property
+    def name(self) -> str:
+        return "env_apply_patch"
+
+    @property
+    def description(self) -> str:
+        return (
+            "Apply pre-parsed file operations (create_file, update_file, delete_file) "
+            "in a named environment instance using V4A diffs."
+        )
+
+    @property
+    def input_schema(self) -> dict:
+        return {
+            "type": "object",
+            "properties": {
+                "instance": _INSTANCE_SCHEMA,
+                "operations": {
+                    "type": "array",
+                    "description": "List of file operations to apply",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "type": {
+                                "type": "string",
+                                "enum": ["create_file", "update_file", "delete_file"],
+                                "description": "Operation type",
+                            },
+                            "path": {
+                                "type": "string",
+                                "description": "File path to operate on",
+                            },
+                            "diff": {
+                                "type": "string",
+                                "description": "V4A diff content (required for create_file and update_file)",
+                            },
+                        },
+                        "required": ["type", "path"],
+                    },
+                },
+            },
+            "required": ["operations"],
+        }
+
+    async def execute(self, input: dict[str, Any]) -> ToolResult:
+        backend, error = _get_backend(self._registry, input)
+        if error:
+            return error
+
+        from .apply_diff import apply_diff
+
+        operations = input.get("operations", [])
+        results: list[dict[str, Any]] = []
+
+        try:
+            for op in operations:
+                op_type = op.get("type")
+                path = op.get("path")
+                diff = op.get("diff", "")
+
+                if op_type == "create_file":
+                    content = apply_diff("", diff, mode="create")
+                    await backend.write_file(path, content)
+                    results.append({"type": op_type, "path": path, "status": "ok"})
+
+                elif op_type == "update_file":
+                    existing = await backend.read_file(path)
+                    content = apply_diff(existing, diff)
+                    await backend.write_file(path, content)
+                    results.append({"type": op_type, "path": path, "status": "ok"})
+
+                elif op_type == "delete_file":
+                    await backend.exec_command(f"rm -f -- {path}")
+                    results.append({"type": op_type, "path": path, "status": "ok"})
+
+            return ToolResult(success=True, output={"results": results})
+        except Exception as e:
+            return ToolResult(success=False, error={"message": str(e)})

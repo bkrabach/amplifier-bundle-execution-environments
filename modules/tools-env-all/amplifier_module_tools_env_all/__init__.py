@@ -1,11 +1,12 @@
 """Instance-based execution environment tools for Amplifier.
 
-Provides 11 tools:
+Provides 12 tools:
 - env_create: Factory for creating environment instances
 - env_destroy: Tear down instances
 - env_list: Show all active instances
 - env_exec, env_read_file, env_write_file, env_edit_file,
-  env_grep, env_glob, env_list_dir, env_file_exists: Common-shape dispatch tools
+  env_grep, env_glob, env_list_dir, env_file_exists,
+  env_apply_patch: Common-shape dispatch tools
 """
 
 from __future__ import annotations
@@ -19,7 +20,7 @@ logger = logging.getLogger(__name__)
 async def mount(
     coordinator: Any, config: dict[str, Any] | None = None
 ) -> dict[str, Any]:
-    """Mount all 11 instance-based environment tools.
+    """Mount all 12 instance-based environment tools.
 
     Retrieves the shared EnvironmentRegistry from coordinator capabilities
     (created by hooks-env-all at session start) and registers all tools.
@@ -27,6 +28,7 @@ async def mount(
     from amplifier_env_common.registry import EnvironmentRegistry
 
     from .dispatch import (
+        EnvApplyPatchTool,
         EnvEditFileTool,
         EnvExecTool,
         EnvFileExistsTool,
@@ -57,7 +59,7 @@ async def mount(
     else:
         logger.info("tools-env-all: using existing registry from hooks module")
 
-    # Create all 11 tools
+    # Create all 12 tools
     all_tools = [
         EnvCreateTool(
             registry=registry,
@@ -75,6 +77,7 @@ async def mount(
         EnvGlobTool(registry=registry),
         EnvListDirTool(registry=registry),
         EnvFileExistsTool(registry=registry),
+        EnvApplyPatchTool(registry=registry),
     ]
 
     # Register all tools with coordinator
@@ -85,7 +88,7 @@ async def mount(
 
     return {
         "name": "tools-env-all",
-        "version": "0.1.0",
-        "description": "Instance-based execution environment tools (11 tools)",
+        "version": "0.2.0",
+        "description": "Instance-based execution environment tools (12 tools)",
         "tools": [t.name for t in all_tools],
     }

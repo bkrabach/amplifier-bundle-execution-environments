@@ -1,7 +1,7 @@
 """Tests for tools-env-all mount function.
 
 Verifies that mount() retrieves the shared EnvironmentRegistry from
-coordinator capabilities, creates all 11 tools, and registers them.
+coordinator capabilities, creates all 12 tools, and registers them.
 """
 
 from __future__ import annotations
@@ -53,6 +53,7 @@ EXPECTED_TOOL_NAMES = sorted(
         "env_glob",
         "env_list_dir",
         "env_file_exists",
+        "env_apply_patch",
     ]
 )
 
@@ -65,8 +66,8 @@ EXPECTED_TOOL_NAMES = sorted(
 class TestToolsMount:
     """Tests for the tools-env-all mount() function."""
 
-    def test_mount_registers_11_tools(self) -> None:
-        """mount() registers exactly 11 tools with coordinator."""
+    def test_mount_registers_12_tools(self) -> None:
+        """mount() registers exactly 12 tools with coordinator."""
         from amplifier_module_tools_env_all import mount
 
         coordinator = MockCoordinator()
@@ -76,7 +77,7 @@ class TestToolsMount:
 
         asyncio.run(mount(coordinator))
 
-        assert len(coordinator._mounted_tools) == 11
+        assert len(coordinator._mounted_tools) == 12
 
     def test_mount_retrieves_registry_from_capability(self) -> None:
         """mount() uses the registry from coordinator.get_capability('env_registry')."""
@@ -102,8 +103,8 @@ class TestToolsMount:
 
         asyncio.run(mount(coordinator))
 
-        # Should still register 11 tools
-        assert len(coordinator._mounted_tools) == 11
+        # Should still register 12 tools
+        assert len(coordinator._mounted_tools) == 12
 
         # Should have created and stored a registry as capability
         registry = coordinator.get_capability("env_registry")
@@ -141,6 +142,6 @@ class TestToolsMount:
         result = asyncio.run(mount(coordinator))
 
         assert result["name"] == "tools-env-all"
-        assert result["version"] == "0.1.0"
+        assert result["version"] == "0.2.0"
         assert "tools" in result
         assert sorted(result["tools"]) == EXPECTED_TOOL_NAMES
