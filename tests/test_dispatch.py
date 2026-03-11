@@ -891,3 +891,482 @@ class TestEnvGrepToolNLSpec:
         )
         assert result.success is True
         assert fake_backend.calls == [("grep", "TODO", "src/", "*.py", True, 50)]
+
+
+# ---------------------------------------------------------------------------
+# EnvApplyPatchTool
+# ---------------------------------------------------------------------------
+
+
+class TestEnvApplyPatchToolName:
+    def test_name(self, registry: EnvironmentRegistry) -> None:
+        from amplifier_module_tools_env_all.dispatch import EnvApplyPatchTool
+
+        tool = EnvApplyPatchTool(registry)
+        assert tool.name == "env_apply_patch"
+
+
+class TestEnvApplyPatchToolSchema:
+    def test_has_operations_in_schema(self, registry: EnvironmentRegistry) -> None:
+        from amplifier_module_tools_env_all.dispatch import EnvApplyPatchTool
+
+        tool = EnvApplyPatchTool(registry)
+        schema = tool.input_schema
+        assert "operations" in schema["properties"]
+
+    def test_operations_schema_is_array(self, registry: EnvironmentRegistry) -> None:
+        from amplifier_module_tools_env_all.dispatch import EnvApplyPatchTool
+
+        tool = EnvApplyPatchTool(registry)
+        schema = tool.input_schema
+        assert schema["properties"]["operations"]["type"] == "array"
+
+    def test_operations_items_have_type_enum(
+        self, registry: EnvironmentRegistry
+    ) -> None:
+        from amplifier_module_tools_env_all.dispatch import EnvApplyPatchTool
+
+        tool = EnvApplyPatchTool(registry)
+        schema = tool.input_schema
+        items = schema["properties"]["operations"]["items"]
+        type_prop = items["properties"]["type"]
+        assert "create_file" in type_prop["enum"]
+        assert "update_file" in type_prop["enum"]
+        assert "delete_file" in type_prop["enum"]
+
+    def test_has_instance_in_schema(self, registry: EnvironmentRegistry) -> None:
+        from amplifier_module_tools_env_all.dispatch import EnvApplyPatchTool
+
+        tool = EnvApplyPatchTool(registry)
+        schema = tool.input_schema
+        assert "instance" in schema["properties"]
+
+    def test_instance_not_required(self, registry: EnvironmentRegistry) -> None:
+        from amplifier_module_tools_env_all.dispatch import EnvApplyPatchTool
+
+        tool = EnvApplyPatchTool(registry)
+        schema = tool.input_schema
+        required = schema.get("required", [])
+        assert "instance" not in required
+
+    def test_has_description(self, registry: EnvironmentRegistry) -> None:
+        from amplifier_module_tools_env_all.dispatch import EnvApplyPatchTool
+
+        tool = EnvApplyPatchTool(registry)
+        assert isinstance(tool.description, str)
+        assert len(tool.description) > 10
+
+    def test_schema_has_operations(self, registry: EnvironmentRegistry) -> None:
+        from amplifier_module_tools_env_all.dispatch import EnvApplyPatchTool
+
+        tool = EnvApplyPatchTool(registry)
+        schema = tool.input_schema
+        assert "operations" in schema["properties"]
+        assert schema["required"] == ["operations"]
+
+    def test_schema_has_instance(self, registry: EnvironmentRegistry) -> None:
+        from amplifier_module_tools_env_all.dispatch import EnvApplyPatchTool
+
+        tool = EnvApplyPatchTool(registry)
+        schema = tool.input_schema
+        assert "instance" in schema["properties"]
+
+
+class TestEnvApplyPatchToolDispatch:
+    def test_create_file_writes_new_file(
+        self, registry: EnvironmentRegistry, fake_backend: FakeBackend
+    ) -> None:
+        from amplifier_module_tools_env_all.dispatch import EnvApplyPatchTool
+
+        diff = "+hello world"
+        tool = EnvApplyPatchTool(registry)
+        result = asyncio.run(
+            tool.execute(
+                {
+                    "operations": [
+                        {"type": "create_file", "path": "/tmp/new.txt", "diff": diff}
+                    ]
+                }
+            )
+        )
+        assert result.success is True
+        assert "results" in result.output
+        write_calls = [c for c in fake_backend.calls if c[0] == "write_file"]
+        assert len(write_calls) == 1
+        assert write_calls[0][1] == "/tmp/new.txt"
+        assert write_calls[0][2] == "hello world"
+
+    def test_update_file_reads_and_writes(
+        self, registry: EnvironmentRegistry, fake_backend: FakeBackend
+    ) -> None:
+        from amplifier_module_tools_env_all.dispatch import EnvApplyPatchTool
+
+        # fake_backend.read_file returns "file content\n"
+        # This diff replaces "file content" with "updated content"
+        diff = "-file content\n+updated content"
+        tool = EnvApplyPatchTool(registry)
+        result = asyncio.run(
+            tool.execute(
+                {
+                    "operations": [
+                        {
+                            "type": "update_file",
+                            "path": "/tmp/existing.txt",
+                            "diff": diff,
+                        }
+                    ]
+                }
+            )
+        )
+        assert result.success is True
+        assert "results" in result.output
+        read_calls = [c for c in fake_backend.calls if c[0] == "read_file"]
+        assert len(read_calls) == 1
+        assert read_calls[0][1] == "/tmp/existing.txt"
+        write_calls = [c for c in fake_backend.calls if c[0] == "write_file"]
+        assert len(write_calls) == 1
+        assert write_calls[0][1] == "/tmp/existing.txt"
+
+    def test_delete_file_calls_rm(
+        self, registry: EnvironmentRegistry, fake_backend: FakeBackend
+    ) -> None:
+        from amplifier_module_tools_env_all.dispatch import EnvApplyPatchTool
+
+        tool = EnvApplyPatchTool(registry)
+        result = asyncio.run(
+            tool.execute(
+                {"operations": [{"type": "delete_file", "path": "/tmp/old.txt"}]}
+            )
+        )
+        assert result.success is True
+        assert "results" in result.output
+        exec_calls = [c for c in fake_backend.calls if c[0] == "exec_command"]
+        assert len(exec_calls) == 1
+        assert "rm -f" in exec_calls[0][1]
+        assert "/tmp/old.txt" in exec_calls[0][1]
+
+    def test_multiple_operations_processed_in_order(
+        self, registry: EnvironmentRegistry, fake_backend: FakeBackend
+    ) -> None:
+        from amplifier_module_tools_env_all.dispatch import EnvApplyPatchTool
+
+        tool = EnvApplyPatchTool(registry)
+        result = asyncio.run(
+            tool.execute(
+                {
+                    "operations": [
+                        {"type": "delete_file", "path": "/tmp/a.txt"},
+                        {"type": "delete_file", "path": "/tmp/b.txt"},
+                    ]
+                }
+            )
+        )
+        assert result.success is True
+        assert len(result.output["results"]) == 2
+
+    def test_missing_instance_returns_error(
+        self, registry: EnvironmentRegistry
+    ) -> None:
+        from amplifier_module_tools_env_all.dispatch import EnvApplyPatchTool
+
+        tool = EnvApplyPatchTool(registry)
+        result = asyncio.run(
+            tool.execute(
+                {
+                    "instance": "ghost",
+                    "operations": [{"type": "delete_file", "path": "/tmp/x.txt"}],
+                }
+            )
+        )
+        assert result.success is False
+        assert "ghost" in result.error["message"]
+
+    def test_backend_exception_returns_error(
+        self, registry: EnvironmentRegistry
+    ) -> None:
+        from amplifier_module_tools_env_all.dispatch import EnvApplyPatchTool
+
+        backend = registry.get("local")
+
+        async def _boom(path: str, content: str) -> None:
+            raise RuntimeError("disk full")
+
+        backend.write_file = _boom  # type: ignore[method-assign]
+
+        diff = "+some content"
+        tool = EnvApplyPatchTool(registry)
+        result = asyncio.run(
+            tool.execute(
+                {
+                    "operations": [
+                        {"type": "create_file", "path": "/tmp/new.txt", "diff": diff}
+                    ]
+                }
+            )
+        )
+        assert result.success is False
+        assert "disk full" in result.error["message"]
+
+    def test_default_instance_is_local(
+        self, registry: EnvironmentRegistry, fake_backend: FakeBackend
+    ) -> None:
+        from amplifier_module_tools_env_all.dispatch import EnvApplyPatchTool
+
+        tool = EnvApplyPatchTool(registry)
+        result = asyncio.run(
+            tool.execute(
+                {"operations": [{"type": "delete_file", "path": "/tmp/x.txt"}]}
+            )
+        )
+        assert result.success is True
+        assert len(fake_backend.calls) == 1
+
+
+# ---------------------------------------------------------------------------
+# ControlledBackend — backend with configurable read_file return
+# ---------------------------------------------------------------------------
+
+
+class ControlledBackend(FakeBackend):
+    """FakeBackend with configurable read_file return and written content tracking."""
+
+    def __init__(self, read_content: str = "file content\n") -> None:
+        super().__init__()
+        self._read_content = read_content
+        self._written_content: str | None = None
+
+    async def read_file(
+        self, path: str, offset: int | None = None, limit: int | None = None
+    ) -> str:
+        self.calls.append(("read_file", path, offset, limit))
+        return self._read_content
+
+    async def write_file(self, path: str, content: str) -> None:
+        self.calls.append(("write_file", path, content))
+        self._written_content = content
+
+
+# ---------------------------------------------------------------------------
+# TestEnvApplyPatchCreateFile
+# ---------------------------------------------------------------------------
+
+
+class TestEnvApplyPatchCreateFile:
+    def test_create_file_calls_write_file(
+        self, registry: EnvironmentRegistry, fake_backend: FakeBackend
+    ) -> None:
+        from amplifier_module_tools_env_all.dispatch import EnvApplyPatchTool
+
+        tool = EnvApplyPatchTool(registry)
+        result = asyncio.run(
+            tool.execute(
+                {
+                    "operations": [
+                        {
+                            "type": "create_file",
+                            "path": "/tmp/newfile.txt",
+                            "diff": "+hello world",
+                        }
+                    ]
+                }
+            )
+        )
+        assert result.success is True
+        write_calls = [c for c in fake_backend.calls if c[0] == "write_file"]
+        assert len(write_calls) == 1
+        assert write_calls[0][1] == "/tmp/newfile.txt"
+
+    def test_create_file_does_not_read_first(
+        self, registry: EnvironmentRegistry, fake_backend: FakeBackend
+    ) -> None:
+        from amplifier_module_tools_env_all.dispatch import EnvApplyPatchTool
+
+        tool = EnvApplyPatchTool(registry)
+        asyncio.run(
+            tool.execute(
+                {
+                    "operations": [
+                        {
+                            "type": "create_file",
+                            "path": "/tmp/new.txt",
+                            "diff": "+content",
+                        }
+                    ]
+                }
+            )
+        )
+        read_calls = [c for c in fake_backend.calls if c[0] == "read_file"]
+        assert len(read_calls) == 0
+
+
+# ---------------------------------------------------------------------------
+# TestEnvApplyPatchUpdateFile
+# ---------------------------------------------------------------------------
+
+
+class TestEnvApplyPatchUpdateFile:
+    def test_update_file_reads_then_writes(
+        self, registry: EnvironmentRegistry, fake_backend: FakeBackend
+    ) -> None:
+        from amplifier_module_tools_env_all.dispatch import EnvApplyPatchTool
+
+        diff = "-file content\n+updated content"
+        tool = EnvApplyPatchTool(registry)
+        result = asyncio.run(
+            tool.execute(
+                {
+                    "operations": [
+                        {
+                            "type": "update_file",
+                            "path": "/tmp/existing.txt",
+                            "diff": diff,
+                        }
+                    ]
+                }
+            )
+        )
+        assert result.success is True
+        read_calls = [c for c in fake_backend.calls if c[0] == "read_file"]
+        assert len(read_calls) == 1
+        write_calls = [c for c in fake_backend.calls if c[0] == "write_file"]
+        assert len(write_calls) == 1
+
+    def test_update_file_applies_diff_correctly(self) -> None:
+        from amplifier_module_tools_env_all.dispatch import EnvApplyPatchTool
+
+        controlled = ControlledBackend(read_content="original line\nsecond line\n")
+        reg = EnvironmentRegistry()
+        reg.register("local", controlled, "fake")
+
+        diff = "-original line\n+replaced line\n"
+        tool = EnvApplyPatchTool(reg)
+        asyncio.run(
+            tool.execute(
+                {
+                    "operations": [
+                        {
+                            "type": "update_file",
+                            "path": "/tmp/file.txt",
+                            "diff": diff,
+                        }
+                    ]
+                }
+            )
+        )
+        assert controlled._written_content is not None
+        assert "replaced line" in controlled._written_content
+        assert "original line" not in controlled._written_content
+
+
+# ---------------------------------------------------------------------------
+# TestEnvApplyPatchDeleteFile
+# ---------------------------------------------------------------------------
+
+
+class TestEnvApplyPatchDeleteFile:
+    def test_delete_file_calls_exec_command(
+        self, registry: EnvironmentRegistry, fake_backend: FakeBackend
+    ) -> None:
+        from amplifier_module_tools_env_all.dispatch import EnvApplyPatchTool
+
+        tool = EnvApplyPatchTool(registry)
+        result = asyncio.run(
+            tool.execute(
+                {
+                    "operations": [
+                        {"type": "delete_file", "path": "/tmp/todelete.txt"}
+                    ]
+                }
+            )
+        )
+        assert result.success is True
+        exec_calls = [c for c in fake_backend.calls if c[0] == "exec_command"]
+        assert len(exec_calls) == 1
+        assert "/tmp/todelete.txt" in exec_calls[0][1]
+
+
+# ---------------------------------------------------------------------------
+# TestEnvApplyPatchValidation
+# ---------------------------------------------------------------------------
+
+
+class TestEnvApplyPatchValidation:
+    def test_missing_operations_returns_error(
+        self, registry: EnvironmentRegistry
+    ) -> None:
+        from amplifier_module_tools_env_all.dispatch import EnvApplyPatchTool
+
+        tool = EnvApplyPatchTool(registry)
+        result = asyncio.run(tool.execute({}))
+        assert result.success is False
+        assert "operations" in result.error["message"]
+
+    def test_unknown_op_type_returns_error(
+        self, registry: EnvironmentRegistry
+    ) -> None:
+        from amplifier_module_tools_env_all.dispatch import EnvApplyPatchTool
+
+        tool = EnvApplyPatchTool(registry)
+        result = asyncio.run(
+            tool.execute(
+                {
+                    "operations": [
+                        {"type": "explode_file", "path": "/tmp/file.txt"}
+                    ]
+                }
+            )
+        )
+        assert result.success is False
+
+    def test_unknown_instance_returns_error(self) -> None:
+        from amplifier_module_tools_env_all.dispatch import EnvApplyPatchTool
+
+        reg = EnvironmentRegistry()
+        tool = EnvApplyPatchTool(reg)
+        result = asyncio.run(
+            tool.execute(
+                {
+                    "instance": "ghost-env",
+                    "operations": [
+                        {"type": "delete_file", "path": "/tmp/x.txt"}
+                    ],
+                }
+            )
+        )
+        assert result.success is False
+
+
+# ---------------------------------------------------------------------------
+# TestEnvApplyPatchMultipleOps
+# ---------------------------------------------------------------------------
+
+
+class TestEnvApplyPatchMultipleOps:
+    def test_multiple_operations_processed_in_order(
+        self, registry: EnvironmentRegistry, fake_backend: FakeBackend
+    ) -> None:
+        from amplifier_module_tools_env_all.dispatch import EnvApplyPatchTool
+
+        tool = EnvApplyPatchTool(registry)
+        result = asyncio.run(
+            tool.execute(
+                {
+                    "operations": [
+                        {
+                            "type": "create_file",
+                            "path": "/tmp/first.txt",
+                            "diff": "+first content",
+                        },
+                        {
+                            "type": "create_file",
+                            "path": "/tmp/second.txt",
+                            "diff": "+second content",
+                        },
+                    ]
+                }
+            )
+        )
+        assert result.success is True
+        assert len(result.output["results"]) == 2
+        assert result.output["results"][0]["path"] == "/tmp/first.txt"
+        assert result.output["results"][1]["path"] == "/tmp/second.txt"
