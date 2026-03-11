@@ -537,7 +537,10 @@ class EnvApplyPatchTool:
 
         from .apply_diff import apply_diff
 
-        operations = input.get("operations", [])
+        operations = input.get("operations")
+        if operations is None:
+            return _missing("operations")
+
         results: list[dict[str, Any]] = []
 
         try:
@@ -560,6 +563,12 @@ class EnvApplyPatchTool:
                 elif op_type == "delete_file":
                     await backend.exec_command(f"rm -f -- {path}")
                     results.append({"type": op_type, "path": path, "status": "ok"})
+
+                else:
+                    return ToolResult(
+                        success=False,
+                        error={"message": f"Unknown operation type: '{op_type}'"},
+                    )
 
             return ToolResult(success=True, output={"results": results})
         except Exception as e:
